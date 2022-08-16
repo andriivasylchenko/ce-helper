@@ -50,19 +50,19 @@ error_exit() {
 no_params_exit() {
   echo -e "${PROGNAME}: ${1:-"No params file. Please fill ce_params_$DEPLOYMENT_LOCATION"}" >&2
   clean_up
-  exit 1
+  exit 22
 }
 
 no_package_version_exit() {
   echo -e "${PROGNAME}: ${1:-"No package version. Make sure version is specified in package.json"}" >&2
   clean_up
-  exit 1
+  exit 22
 }
 
 no_env_exit() {
   echo -e "${PROGNAME}: ${1:-"No deployment environment specified."}" >&2
   clean_up
-  exit 1
+  exit 22
 }
 
 graceful_exit() {
@@ -161,7 +161,7 @@ login_logic() {
 	    echo ""
 		echo "- Step $CURRENT_STEP - FAIL"
 		echo ""
-		exit
+		exit 13
 	fi
 
 
@@ -180,7 +180,7 @@ login_logic() {
 			echo ""
 			echo "- Step $CURRENT_STEP - FAIL"
 			echo ""
-			exit
+			exit 13
 		fi
 
 		# step
@@ -197,7 +197,7 @@ login_logic() {
 			echo ""
 			echo "- Step $CURRENT_STEP - FAIL"
 			echo ""
-			exit
+			exit 13
 		fi
 	else
 		echo "Skipping Container Registry login due to a remote build"
@@ -228,7 +228,7 @@ login_logic() {
 	    echo ""
 		echo "- Step $CURRENT_STEP - FAIL"
 		echo ""
-		exit
+		exit 13
 	fi
 }
 
@@ -258,7 +258,7 @@ build_logic() {
 			echo ""
 			echo "- Step $CURRENT_STEP - FAIL"
 			echo ""
-			exit
+			exit 13
 		fi
 
 		# step
@@ -275,7 +275,7 @@ build_logic() {
 			echo ""
 			echo "- Step $CURRENT_STEP - FAIL"
 			echo ""
-			exit
+			exit 13
 		fi
 
 		# step
@@ -292,7 +292,7 @@ build_logic() {
 			echo ""
 			echo "- Step $CURRENT_STEP - FAIL"
 			echo ""
-			exit
+			exit 13
 		fi
 
 		# step
@@ -309,7 +309,7 @@ build_logic() {
 			echo ""
 			echo "- Step $CURRENT_STEP - FAIL"
 			echo ""
-			exit
+			exit 13
 		fi
 	else
 		echo ""
@@ -451,7 +451,7 @@ deploy_logic() {
 	    echo ""
 		echo "- Step $CURRENT_STEP - FAIL"
 		echo ""
-		exit
+		exit 13
 	fi
 }
 
@@ -477,13 +477,13 @@ all_logic() {
 			echo ""
 			echo "DEPLOY FAILURE"
 			echo ""
-			exit
+			exit 13
 		fi
 	else
 	    echo ""
 		echo "BUILD FAILURE"
 		echo ""
-		exit
+		exit 13
 	fi
 }
 
@@ -515,19 +515,19 @@ all_with_login_logic() {
 				echo ""
 				echo "DEPLOY FAILURE"
 				echo ""
-				exit
+				exit 13
 			fi
 		else
 			echo ""
 			echo "BUILD FAILURE"
 			echo ""
-			exit
+			exit 13
 		fi
 	else
 		echo ""
 		echo "LOGIN FAILURE"
 		echo ""
-		exit
+		exit 13
 	fi
 }
 
