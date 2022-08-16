@@ -1,0 +1,13 @@
+#!/bin/bash
+# ---------------------------------------------------------------------------
+# ce helper installer
+#
+# Copyright 2022,  <andrii@ibm.com>
+# All rights reserved.
+# ---------------------------------------------------------------------------
+#
+# Only use sudo if not running as root:
+[ "$(id -u)" -ne 0 ] && SUDO=sudo || SUDO=""
+curl --progress-bar -LO https://raw.githubusercontent.com/andriivasylchenko/ce-helper/main/ce-helper
+$SUDO mv ./ce-helper /usr/local/bin/ce-helper
+$SUDO chmod +x /usr/local/bin/ce-helper
