@@ -123,6 +123,8 @@ login_logic() {
 	echo "-----------------------"
 	echo "-- LOGIN --------------"
 	echo "-----------------------"
+	STEPS_COUNT=4
+	CURRENT_STEP=1
 
 	LOGIN_ARGUMENTS=""
 
@@ -139,121 +141,77 @@ login_logic() {
 		then
 			LOGIN_ARGUMENTS="$LOGIN_ARGUMENTS --apikey $CLOUD_LOGIN_IAM"
 		fi
+		if [ -n "$CLOUD_ACCOUNT" ]; then
+			LOGIN_ARGUMENTS="$LOGIN_ARGUMENTS -c $CLOUD_ACCOUNT"
+		fi
 	fi
 
-	# step 1
+	# step
 	echo ""
-	echo "- Step 1/7 - Log in to IBM Cloud"
+	echo "- Step $CURRENT_STEP/$STEPS_COUNT - Log in to IBM Cloud"
 	echo ""
 
-	eval "ibmcloud login $LOGIN_ARGUMENTS"
+	eval "ibmcloud login $LOGIN_ARGUMENTS -g $CLOUD_RESOURCE_GROUP -r $CLOUD_REGION"
 	if [ $? -eq 0 ]; then
 	    echo ""
-		echo "- Step 1 - OK"
+		echo "- Step $CURRENT_STEP - OK"
 		echo ""
+		CURRENT_STEP=$(($CURRENT_STEP + 1))
 	else
 	    echo ""
-		echo "- Step 1 - FAIL"
+		echo "- Step $CURRENT_STEP - FAIL"
 		echo ""
 		exit
 	fi
 
-	# step 2
-	echo ""
-	echo "- Step 2/7 - Select account"
-	echo ""
 
-	if [ -n "$CLOUD_ACCOUNT" ]; then
-		ibmcloud target -c $CLOUD_ACCOUNT
-	else
-		echo "Step skipped. Staying with default account"
-	fi
-
-	if [ $? -eq 0 ]; then
-	    echo ""
-		echo "- Step 2 - OK"
-		echo ""
-	else
-	    echo ""
-		echo "- Step 2 - FAIL"
-		echo ""
-		exit
-	fi
 	if [ $BUILD_TYPE != "remote" ]; then
-		# step 3
+		# step
 		echo ""
-		echo "- Step 3/7 - Set IBM Container Registry region"
+		echo "- Step $CURRENT_STEP/$STEPS_COUNT - Set IBM Container Registry region"
 		echo ""
 		ibmcloud cr region-set $CLOUD_REGION
 		if [ $? -eq 0 ]; then
 			echo ""
-			echo "- Step 3 - OK"
+			echo "- Step $CURRENT_STEP - OK"
 			echo ""
+			CURRENT_STEP=$(($CURRENT_STEP + 1))
 		else
 			echo ""
-			echo "- Step 3 - FAIL"
+			echo "- Step $CURRENT_STEP - FAIL"
 			echo ""
 			exit
 		fi
 
-		# step 4
+		# step
 		echo ""
-		echo "- Step 4/7 - Login to IBM Container Registry"
+		echo "- Step $CURRENT_STEP/$STEPS_COUNT - Login to IBM Container Registry"
 		echo ""
 		ibmcloud cr login
 		if [ $? -eq 0 ]; then
 			echo ""
-			echo "- Step 4 - OK"
+			echo "- Step $CURRENT_STEP - OK"
 			echo ""
+			CURRENT_STEP=$(($CURRENT_STEP + 1))
 		else
 			echo ""
-			echo "- Step 4 - FAIL"
+			echo "- Step $CURRENT_STEP - FAIL"
 			echo ""
 			exit
 		fi
 	else
 		echo "Skipping Container Registry login due to a remote build"
 		echo ""
-		echo "- Step 3 - SKIP"
-		echo "- Step 4 - SKIP"
+		echo "- Step $CURRENT_STEP/$STEPS_COUNT - SKIP"
+		CURRENT_STEP=$(($CURRENT_STEP + 1))
+		echo "- Step $CURRENT_STEP/$STEPS_COUNT - SKIP"
+		CURRENT_STEP=$(($CURRENT_STEP + 1))
 		echo ""
 	fi
 
-	# step 5
+	# step
 	echo ""
-	echo "- Step 5/7 - Selecting target region for IBM Code Engine"
-	echo ""
-	ibmcloud target -r $CLOUD_REGION
-	if [ $? -eq 0 ]; then
-	    echo ""
-		echo "- Step 5 - OK"
-		echo ""
-	else
-	    echo ""
-		echo "- Step 5 - FAIL"
-		echo ""
-		exit
-	fi
-
-	# step 6
-	echo ""
-	echo "- Step 6/7 - Selecting target resource group IBM Code Engine"
-	echo ""
-	ibmcloud target -g $CLOUD_RESOURCE_GROUP
-	if [ $? -eq 0 ]; then
-	    echo ""
-		echo "- Step 6 - OK"
-		echo ""
-	else
-	    echo ""
-		echo "- Step 6 - FAIL"
-		echo ""
-		exit
-	fi
-
-	# step 7
-	echo ""
-	echo "- Step 7/7 - Selecting IBM Code Engine project"
+	echo "- Step $CURRENT_STEP/$STEPS_COUNT - Selecting IBM Code Engine project"
 	echo ""
 	PROJECT_SELECTION_ARGUMENTS="--name $CODE_ENGINE_PROJECT_NAME"
 	if [[ "$CLOUD_KUBERNETES_KUBECFG" == "true" ]]
@@ -263,11 +221,12 @@ login_logic() {
 	eval "ibmcloud ce project select $PROJECT_SELECTION_ARGUMENTS"
 	if [ $? -eq 0 ]; then
 	    echo ""
-		echo "- Step 7 - OK"
+		echo "- Step $CURRENT_STEP - OK"
 		echo ""
+		CURRENT_STEP=$(($CURRENT_STEP + 1))
 	else
 	    echo ""
-		echo "- Step 7 - FAIL"
+		echo "- Step $CURRENT_STEP - FAIL"
 		echo ""
 		exit
 	fi
@@ -279,70 +238,76 @@ build_logic() {
 	echo "-----------------------"
 	echo "-- BUILD --------------"
 	echo "-----------------------"
+	STEPS_COUNT=4
+	CURRENT_STEP=1
 
 	if [ $BUILD_TYPE != "remote" ]; then
-		# step 1
+		# step
 		echo ""
-		echo "- Step 1/4 - Getting current package version"
+		echo "- Step $CURRENT_STEP/$STEPS_COUNT - Getting current package version"
 		echo ""
 		PACKAGE_VERSION=$(node --eval="process.stdout.write(require('./package.json').version)")
 
 		if [ $? -eq 0 ]; then
 			echo "PACKAGE VERSION: $PACKAGE_VERSION"
 			echo ""
-			echo "- Step 1 - OK"
+			echo "- Step $CURRENT_STEP - OK"
 			echo ""
+			CURRENT_STEP=$(($CURRENT_STEP + 1))
 		else
 			echo ""
-			echo "- Step 1 - FAIL"
+			echo "- Step $CURRENT_STEP - FAIL"
 			echo ""
 			exit
 		fi
 
-		# step 2
+		# step
 		echo ""
-		echo "- Step 2/4 - Building docker image"
+		echo "- Step $CURRENT_STEP/$STEPS_COUNT - Building docker image"
 		echo ""
 		docker build -t $IMAGE_NAME --build-arg BUILD_SCRIPT=build-$DEPLOYMENT_LOCATION .
 		if [ $? -eq 0 ]; then
 			echo ""
-			echo "- Step 2 - OK"
+			echo "- Step $CURRENT_STEP - OK"
 			echo ""
+			CURRENT_STEP=$(($CURRENT_STEP + 1))
 		else
 			echo ""
-			echo "- Step 2 - FAIL"
+			echo "- Step $CURRENT_STEP - FAIL"
 			echo ""
 			exit
 		fi
 
-		# step 3
+		# step
 		echo ""
-		echo "- Step 3/4 - Tagging docker image"
+		echo "- Step $CURRENT_STEP/$STEPS_COUNT - Tagging docker image"
 		echo ""
 		docker tag $IMAGE_NAME $PUBLIC_CONTAINER_REGISTRY/$CLOUD_RESOURCE_GROUP/$IMAGE_NAME-$DEPLOYMENT_LOCATION:$PACKAGE_VERSION
 		if [ $? -eq 0 ]; then
 			echo ""
-			echo "- Step 3 - OK"
+			echo "- Step $CURRENT_STEP - OK"
 			echo ""
+			CURRENT_STEP=$(($CURRENT_STEP + 1))
 		else
 			echo ""
-			echo "- Step 3 - FAIL"
+			echo "- Step $CURRENT_STEP - FAIL"
 			echo ""
 			exit
 		fi
 
-		# step 4
+		# step
 		echo ""
-		echo "- Step 4/4 - Pushing docker image to IBM Container Registry"
+		echo "- Step $CURRENT_STEP/$STEPS_COUNT - Pushing docker image to IBM Container Registry"
 		echo ""
 		docker push $PUBLIC_CONTAINER_REGISTRY/$CLOUD_RESOURCE_GROUP/$IMAGE_NAME-$DEPLOYMENT_LOCATION:$PACKAGE_VERSION
 		if [ $? -eq 0 ]; then
 			echo ""
-			echo "- Step 4 - OK"
+			echo "- Step $CURRENT_STEP - OK"
 			echo ""
+			CURRENT_STEP=$(($CURRENT_STEP + 1))
 		else
 			echo ""
-			echo "- Step 4 - FAIL"
+			echo "- Step $CURRENT_STEP - FAIL"
 			echo ""
 			exit
 		fi
@@ -350,10 +315,14 @@ build_logic() {
 		echo ""
   		echo "Skipping local build phase"
 		echo ""
-		echo "- Step 1 - SKIP"
-		echo "- Step 2 - SKIP"
-		echo "- Step 3 - SKIP"
-		echo "- Step 4 - SKIP"
+		echo "- Step $CURRENT_STEP/$STEPS_COUNT - SKIP"
+		CURRENT_STEP=$(($CURRENT_STEP + 1))
+		echo "- Step $CURRENT_STEP/$STEPS_COUNT - SKIP"
+		CURRENT_STEP=$(($CURRENT_STEP + 1))
+		echo "- Step $CURRENT_STEP/$STEPS_COUNT - SKIP"
+		CURRENT_STEP=$(($CURRENT_STEP + 1))
+		echo "- Step $CURRENT_STEP/$STEPS_COUNT - SKIP"
+		CURRENT_STEP=$(($CURRENT_STEP + 1))
 		echo ""
 	fi
 }
@@ -363,9 +332,11 @@ deploy_logic() {
 	echo "-----------------------"
 	echo "-- DEPLOY -------------"
 	echo "-----------------------"
+	STEPS_COUNT=1
+	CURRENT_STEP=1
 
 	echo ""
-	echo "- Step 1/1 - Deployment to IBM Code Engine $APPLICATION_NAME-$DEPLOYMENT_LOCATION"
+	echo "- Step $CURRENT_STEP/$STEPS_COUNT - Deployment to IBM Code Engine $APPLICATION_NAME-$DEPLOYMENT_LOCATION"
 	echo "  Environment: $DEPLOYMENT_LOCATION"
 
 	DEPLOYMENT_ARGUMENT="$OPERATION_TYPE --name $APPLICATION_NAME"
@@ -471,12 +442,14 @@ deploy_logic() {
 
 	if [ $? -eq 0 ]; then
 	    echo ""
-		echo "- Step 1 - OK"
+		echo "- Step $CURRENT_STEP - OK"
+		echo ""
+		CURRENT_STEP=$(($CURRENT_STEP + 1))
 		echo "  IMPORTANT! This doesn't mean a succesful start of $APPLICATION_NAME. Check logs or visit app for verification"
 		echo ""
 	else
 	    echo ""
-		echo "- Step 1 - FAIL"
+		echo "- Step $CURRENT_STEP - FAIL"
 		echo ""
 		exit
 	fi
