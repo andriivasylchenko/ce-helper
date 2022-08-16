@@ -1,0 +1,12 @@
+language: node_js
+node_js:
+  - 14
+
+before_install:
+  - curl -sL https://raw.githubusercontent.com/IBM-Cloud/ibm-cloud-developer-tools/master/linux-installer/idt-installer | bash
+  - ibmcloud plugin install code-engine container-registry
+  - curl -sL https://raw.githubusercontent.com/andriivasylchenko/ce-helper/main/installer | bash
+  - echo $ibmcloud_key > ~/.ibmcloud_key
+
+script:
+  - ce-helper -al

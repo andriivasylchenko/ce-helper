@@ -24,6 +24,15 @@ CLOUD_LOGIN_TYPE=file
 CLOUD_LOGIN_IAM_KEY_FILE=~/.ibmcloud_key
 ```
 
+### Optional usage with Travis CI
+
+* Configure Travis CI to work with your project code repository
+* Set environment variable **ibmcloud_key** to the value of IBM Cloud IAM key
+
+Copy file *.travis.remote.example.yml* into your project for remote build (dockerfile, buildpacks).
+Don't forget to rename travis file to *.travis.yml*
+
+
 ## Usage
 ```
 ce-helper [OPTION] [ENVIRONMENT] [ACTION]
