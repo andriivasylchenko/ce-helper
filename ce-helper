@@ -1,0 +1,612 @@
+#!/bin/zsh
+# ---------------------------------------------------------------------------
+# deployment_helper - Minimal DevOps automation helper
+
+# Copyright 2022,  <andrii@ibm.com>
+# All rights reserved.
+
+# Use "ce-helper -h" for help
+# .ce.ENVIRONMENT.env file with settings should avaliable in the current folder
+# ---------------------------------------------------------------------------
+
+PROGNAME=${0##*/}
+VERSION=0.1
+
+SCRIPT_START_TIME=`date +%s`
+
+# Parse command-line
+case $2 in
+    -p | --prod)
+      DEPLOYMENT_LOCATION=prod ;;
+    -s | --stage)
+      DEPLOYMENT_LOCATION=stage ;;
+    -t | --test)
+      DEPLOYMENT_LOCATION=test ;;
+    *)
+      DEPLOYMENT_LOCATION=prod ;;
+esac
+
+PACKAGE_VERSION=$(node --eval="process.stdout.write(require('./package.json').version)")
+	if [ $? -eq 0 ]; then
+	    echo "PACKAGE VERSION: $PACKAGE_VERSION"
+		echo ""
+	else
+	    no_package_version_exit
+	fi
+
+source ./.ce.$DEPLOYMENT_LOCATION.env
+
+
+clean_up() { # Perform pre-exit housekeeping
+  return
+}
+
+error_exit() {
+  echo -e "${PROGNAME}: ${1:-"Unknown Error"}" >&2
+  clean_up
+  exit 1
+}
+
+no_params_exit() {
+  echo -e "${PROGNAME}: ${1:-"No params file. Please fill ce_params_$DEPLOYMENT_LOCATION"}" >&2
+  clean_up
+  exit 1
+}
+
+no_package_version_exit() {
+  echo -e "${PROGNAME}: ${1:-"No package version. Make sure version is specified in package.json"}" >&2
+  clean_up
+  exit 1
+}
+
+no_env_exit() {
+  echo -e "${PROGNAME}: ${1:-"No deployment environment specified."}" >&2
+  clean_up
+  exit 1
+}
+
+graceful_exit() {
+  clean_up
+  exit
+}
+
+signal_exit() { # Handle trapped signals
+  case $1 in
+    INT)
+      error_exit "Program interrupted by user" ;;
+    TERM)
+      echo -e "\n$PROGNAME: Program terminated" >&2
+      graceful_exit ;;
+    *)
+      error_exit "$PROGNAME: Terminating on unknown signal" ;;
+  esac
+}
+
+usage() {
+  echo -e "Usage: $PROGNAME [OPTION] [ENVIRONMENT] [ACTION]"
+}
+
+help_message() {
+  cat <<- _EOF_
+
+  $PROGNAME ver. $VERSION
+  Minimal DevOps automation helper for IBM Code Engine
+
+  $(usage)
+
+  Application accepts up to 3 arguments, one of each type
+
+  OPTION:
+  -h, --help  Display this help message and exit.
+  -l, --login  Login to IBM Cloud and IBM Container Registry
+  -b, --build  Build docker image, tag it and push to IBM Container Registry
+  -d, --deploy  Deploy to Kubernetes instance
+  -a, --all  Build and Deploy procedures
+  -al, --all-with-login  Login, Build and Deploy procedures
+
+  ENVIRONMENT:
+  -p, --prod Use production environment
+  -s, --stage Use staging environment
+  -t, --test Use test environment
+
+  ACTION:
+  -c, --create Use to create new application on IBM Code Engine
+  -u, --update Use to update existing application on IBM Code Engine
+
+_EOF_
+  return
+}
+
+
+login_logic() {
+	echo ""
+	echo "-----------------------"
+	echo "-- LOGIN --------------"
+	echo "-----------------------"
+
+	LOGIN_ARGUMENTS=""
+
+	if [ -n "$CLOUD_LOGIN_TYPE" ]; then
+		if [[ "$CLOUD_LOGIN_TYPE" == "sso" ]]
+		then
+			LOGIN_ARGUMENTS="$LOGIN_ARGUMENTS --sso"
+		fi
+		if [[ "$CLOUD_LOGIN_TYPE" == "file" ]]
+		then
+			LOGIN_ARGUMENTS="$LOGIN_ARGUMENTS --apikey @$CLOUD_LOGIN_IAM_KEY_FILE"
+		fi
+		if [[ "$CLOUD_LOGIN_TYPE" == "key" ]]
+		then
+			LOGIN_ARGUMENTS="$LOGIN_ARGUMENTS --apikey $CLOUD_LOGIN_IAM"
+		fi
+	fi
+
+	# step 1
+	echo ""
+	echo "- Step 1/7 - Log in to IBM Cloud"
+	echo ""
+
+	eval "ibmcloud login $LOGIN_ARGUMENTS"
+	if [ $? -eq 0 ]; then
+	    echo ""
+		echo "- Step 1 - OK"
+		echo ""
+	else
+	    echo ""
+		echo "- Step 1 - FAIL"
+		echo ""
+		exit
+	fi
+
+	# step 2
+	echo ""
+	echo "- Step 2/7 - Select account"
+	echo ""
+
+	if [ -n "$CLOUD_ACCOUNT" ]; then
+		ibmcloud target -c $CLOUD_ACCOUNT
+	else
+		echo "Step skipped. Staying with default account"
+	fi
+
+	if [ $? -eq 0 ]; then
+	    echo ""
+		echo "- Step 2 - OK"
+		echo ""
+	else
+	    echo ""
+		echo "- Step 2 - FAIL"
+		echo ""
+		exit
+	fi
+	if [ $BUILD_TYPE != "remote" ]; then
+		# step 3
+		echo ""
+		echo "- Step 3/7 - Set IBM Container Registry region"
+		echo ""
+		ibmcloud cr region-set $CLOUD_REGION
+		if [ $? -eq 0 ]; then
+			echo ""
+			echo "- Step 3 - OK"
+			echo ""
+		else
+			echo ""
+			echo "- Step 3 - FAIL"
+			echo ""
+			exit
+		fi
+
+		# step 4
+		echo ""
+		echo "- Step 4/7 - Login to IBM Container Registry"
+		echo ""
+		ibmcloud cr login
+		if [ $? -eq 0 ]; then
+			echo ""
+			echo "- Step 4 - OK"
+			echo ""
+		else
+			echo ""
+			echo "- Step 4 - FAIL"
+			echo ""
+			exit
+		fi
+	else
+		echo "Skipping Container Registry login due to a remote build"
+		echo ""
+		echo "- Step 3 - SKIP"
+		echo "- Step 4 - SKIP"
+		echo ""
+	fi
+
+	# step 5
+	echo ""
+	echo "- Step 5/7 - Selecting target region for IBM Code Engine"
+	echo ""
+	ibmcloud target -r $CLOUD_REGION
+	if [ $? -eq 0 ]; then
+	    echo ""
+		echo "- Step 5 - OK"
+		echo ""
+	else
+	    echo ""
+		echo "- Step 5 - FAIL"
+		echo ""
+		exit
+	fi
+
+	# step 6
+	echo ""
+	echo "- Step 6/7 - Selecting target resource group IBM Code Engine"
+	echo ""
+	ibmcloud target -g $CLOUD_RESOURCE_GROUP
+	if [ $? -eq 0 ]; then
+	    echo ""
+		echo "- Step 6 - OK"
+		echo ""
+	else
+	    echo ""
+		echo "- Step 6 - FAIL"
+		echo ""
+		exit
+	fi
+
+	# step 7
+	echo ""
+	echo "- Step 7/7 - Selecting IBM Code Engine project"
+	echo ""
+	PROJECT_SELECTION_ARGUMENTS="--name $CODE_ENGINE_PROJECT_NAME"
+	if [[ "$CLOUD_KUBERNETES_KUBECFG" == "true" ]]
+		then
+		PROJECT_SELECTION_ARGUMENTS="$PROJECT_SELECTION_ARGUMENTS --kubecfg"
+	fi
+	eval "ibmcloud ce project select $PROJECT_SELECTION_ARGUMENTS"
+	if [ $? -eq 0 ]; then
+	    echo ""
+		echo "- Step 7 - OK"
+		echo ""
+	else
+	    echo ""
+		echo "- Step 7 - FAIL"
+		echo ""
+		exit
+	fi
+}
+
+
+build_logic() {
+	echo ""
+	echo "-----------------------"
+	echo "-- BUILD --------------"
+	echo "-----------------------"
+
+	if [ $BUILD_TYPE != "remote" ]; then
+		# step 1
+		echo ""
+		echo "- Step 1/4 - Getting current package version"
+		echo ""
+		PACKAGE_VERSION=$(node --eval="process.stdout.write(require('./package.json').version)")
+
+		if [ $? -eq 0 ]; then
+			echo "PACKAGE VERSION: $PACKAGE_VERSION"
+			echo ""
+			echo "- Step 1 - OK"
+			echo ""
+		else
+			echo ""
+			echo "- Step 1 - FAIL"
+			echo ""
+			exit
+		fi
+
+		# step 2
+		echo ""
+		echo "- Step 2/4 - Building docker image"
+		echo ""
+		docker build -t $IMAGE_NAME --build-arg BUILD_SCRIPT=build-$DEPLOYMENT_LOCATION .
+		if [ $? -eq 0 ]; then
+			echo ""
+			echo "- Step 2 - OK"
+			echo ""
+		else
+			echo ""
+			echo "- Step 2 - FAIL"
+			echo ""
+			exit
+		fi
+
+		# step 3
+		echo ""
+		echo "- Step 3/4 - Tagging docker image"
+		echo ""
+		docker tag $IMAGE_NAME $PUBLIC_CONTAINER_REGISTRY/$CLOUD_RESOURCE_GROUP/$IMAGE_NAME-$DEPLOYMENT_LOCATION:$PACKAGE_VERSION
+		if [ $? -eq 0 ]; then
+			echo ""
+			echo "- Step 3 - OK"
+			echo ""
+		else
+			echo ""
+			echo "- Step 3 - FAIL"
+			echo ""
+			exit
+		fi
+
+		# step 4
+		echo ""
+		echo "- Step 4/4 - Pushing docker image to IBM Container Registry"
+		echo ""
+		docker push $PUBLIC_CONTAINER_REGISTRY/$CLOUD_RESOURCE_GROUP/$IMAGE_NAME-$DEPLOYMENT_LOCATION:$PACKAGE_VERSION
+		if [ $? -eq 0 ]; then
+			echo ""
+			echo "- Step 4 - OK"
+			echo ""
+		else
+			echo ""
+			echo "- Step 4 - FAIL"
+			echo ""
+			exit
+		fi
+	else
+		echo ""
+  		echo "Skipping local build phase"
+		echo ""
+		echo "- Step 1 - SKIP"
+		echo "- Step 2 - SKIP"
+		echo "- Step 3 - SKIP"
+		echo "- Step 4 - SKIP"
+		echo ""
+	fi
+}
+
+deploy_logic() {
+	echo ""
+	echo "-----------------------"
+	echo "-- DEPLOY -------------"
+	echo "-----------------------"
+
+	echo ""
+	echo "- Step 1/1 - Deployment to IBM Code Engine $APPLICATION_NAME-$DEPLOYMENT_LOCATION"
+	echo "  Environment: $DEPLOYMENT_LOCATION"
+
+	DEPLOYMENT_ARGUMENT="$OPERATION_TYPE --name $APPLICATION_NAME"
+	if [[ "$APPLICATION_INCLUDE_ENVIRONMENT_NAME" == "true" ]]; then
+		DEPLOYMENT_ARGUMENT="$DEPLOYMENT_ARGUMENT-$DEPLOYMENT_LOCATION"
+	fi
+
+	if [[ "$BUILD_TYPE" == "local" ]]
+	then
+		# local build deployment
+		IMAGE_ARGUMENT="$PRIVATE_CONTAINER_REGISTRY/$CLOUD_RESOURCE_GROUP/$IMAGE_NAME"
+		if [[ "$IMAGE_INCLUDE_ENVIRONMENT_NAME" == "true" ]]
+		then
+			IMAGE_ARGUMENT="$IMAGE_ARGUMENT-$DEPLOYMENT_LOCATION"
+		fi
+		IMAGE_ARGUMENT="$IMAGE_ARGUMENT:$PACKAGE_VERSION"
+
+		echo "  Docker image: $IMAGE_ARGUMENT"
+		DEPLOYMENT_ARGUMENT="$DEPLOYMENT_ARGUMENT --image $IMAGE_ARGUMENT"
+	else
+		# cloud build then deployment
+
+		# Maybe will find a workaround for setting image name
+		# if [ -n "$IMAGE_NAME" ]; then
+		# 	DEPLOYMENT_ARGUMENT="$DEPLOYMENT_ARGUMENT --image $IMAGE_NAME"
+		# 	if [[ "$IMAGE_INCLUDE_ENVIRONMENT_NAME" == "true" ]]
+		# 	then
+		# 		DEPLOYMENT_ARGUMENT="$DEPLOYMENT_ARGUMENT-$DEPLOYMENT_LOCATION"
+		# 	fi
+		# 	DEPLOYMENT_ARGUMENT="$DEPLOYMENT_ARGUMENT:$PACKAGE_VERSION"
+		# fi
+
+		if [ -n "$CODE_ENGINE_BUILD_STRATEGY" ]; then
+			DEPLOYMENT_ARGUMENT="$DEPLOYMENT_ARGUMENT --build-strategy  $CODE_ENGINE_BUILD_STRATEGY"
+		fi
+
+		if [ -n "$CODE_ENGINE_BUILD_SIZE" ]; then
+			DEPLOYMENT_ARGUMENT="$DEPLOYMENT_ARGUMENT --build-size $CODE_ENGINE_BUILD_SIZE"
+		fi
+
+		if [ -n "$CODE_ENGINE_CODE_REPO" ]; then
+			DEPLOYMENT_ARGUMENT="$DEPLOYMENT_ARGUMENT --build-source $CODE_ENGINE_CODE_REPO"
+		fi
+
+		if [ -n "$CODE_ENGINE_CODE_REPO_SECRET" ]; then
+			DEPLOYMENT_ARGUMENT="$DEPLOYMENT_ARGUMENT --build-git-repo-secret $CODE_ENGINE_CODE_REPO_SECRET"
+		fi
+	fi
+
+	if [ -n "$CODE_ENGINE_CPU" ]; then
+		DEPLOYMENT_ARGUMENT="$DEPLOYMENT_ARGUMENT --cpu $CODE_ENGINE_CPU"
+	fi
+
+	if [ -n "$CODE_ENGINE_MEMORY" ]; then
+		DEPLOYMENT_ARGUMENT="$DEPLOYMENT_ARGUMENT --memory $CODE_ENGINE_MEMORY"
+	fi
+
+		if [ -n "$CODE_ENGINE_STORAGE" ]; then
+		DEPLOYMENT_ARGUMENT="$DEPLOYMENT_ARGUMENT --ephemeral-storage $CODE_ENGINE_STORAGE"
+	fi
+
+	if [ -n "$CODE_ENGINE_MIN_SCALE" ]; then
+		DEPLOYMENT_ARGUMENT="$DEPLOYMENT_ARGUMENT --min-scale $CODE_ENGINE_MIN_SCALE"
+	fi
+
+	if [ -n "$CODE_ENGINE_MAX_SCALE" ]; then
+		DEPLOYMENT_ARGUMENT="$DEPLOYMENT_ARGUMENT --max-scale $CODE_ENGINE_MAX_SCALE"
+	fi
+
+	if [ -n "$CODE_ENGINE_CONCURRENCY" ]; then
+		DEPLOYMENT_ARGUMENT="$DEPLOYMENT_ARGUMENT --concurrency $CODE_ENGINE_CONCURRENCY"
+	fi
+
+	if [ -n "$CODE_ENGINE_CONCURRENCY_TARGET" ]; then
+		DEPLOYMENT_ARGUMENT="$DEPLOYMENT_ARGUMENT --concurrency-target $CODE_ENGINE_CONCURRENCY_TARGET"
+	fi
+
+	if [ -n "$CODE_ENGINE_PORT" ]; then
+		DEPLOYMENT_ARGUMENT="$DEPLOYMENT_ARGUMENT --port $CODE_ENGINE_PORT"
+	fi
+
+	if [ -n "$CODE_ENGINE_CONTAINER_REGISTRY_SECRET" ]; then
+		DEPLOYMENT_ARGUMENT="$DEPLOYMENT_ARGUMENT --registry-secret $CODE_ENGINE_CONTAINER_REGISTRY_SECRET"
+	fi
+
+	if [ -n "$CODE_ENGINE_VISIBILITY" ]; then
+		DEPLOYMENT_ARGUMENT="$DEPLOYMENT_ARGUMENT --visibility $CODE_ENGINE_VISIBILITY"
+	fi
+
+	if [ -n "$CODE_ENGINE_ENV_SECRET" ]; then
+		DEPLOYMENT_ARGUMENT="$DEPLOYMENT_ARGUMENT --env-from-secret $CODE_ENGINE_ENV_SECRET"
+	fi
+
+	if [ -n "$CODE_ENGINE_ENV_CONFIG_MAP" ]; then
+		DEPLOYMENT_ARGUMENT="$DEPLOYMENT_ARGUMENT --env-from-configmap $CODE_ENGINE_ENV_CONFIG_MAP"
+	fi
+
+	echo ""
+	echo "ibmcloud ce application $DEPLOYMENT_ARGUMENT"
+	echo ""
+
+	eval "ibmcloud ce application $DEPLOYMENT_ARGUMENT"
+
+	if [ $? -eq 0 ]; then
+	    echo ""
+		echo "- Step 1 - OK"
+		echo "  IMPORTANT! This doesn't mean a succesful start of $APPLICATION_NAME. Check logs or visit app for verification"
+		echo ""
+	else
+	    echo ""
+		echo "- Step 1 - FAIL"
+		echo ""
+		exit
+	fi
+}
+
+all_logic() {
+	echo ""
+	echo "Launching Build & Deploy"
+
+	build_logic;
+	if [ $? -eq 0 ]; then
+	    echo ""
+		echo "BUILD SUCCESS"
+		echo ""
+
+		deploy_logic;
+		if [ $? -eq 0 ]; then
+			echo ""
+			echo "DEPLOY SUCCESS"
+			echo ""
+
+			echo "Build & Deploy has finished"
+			echo ""
+		else
+			echo ""
+			echo "DEPLOY FAILURE"
+			echo ""
+			exit
+		fi
+	else
+	    echo ""
+		echo "BUILD FAILURE"
+		echo ""
+		exit
+	fi
+}
+
+all_with_login_logic() {
+	echo ""
+	echo "Launching Login, Build & Deploy"
+
+	login_logic;
+	if [ $? -eq 0 ]; then
+	    echo ""
+		echo "LOGIN SUCCESS"
+		echo ""
+
+		build_logic;
+		if [ $? -eq 0 ]; then
+			echo ""
+			echo "BUILD SUCCESS"
+			echo ""
+
+			deploy_logic;
+			if [ $? -eq 0 ]; then
+				echo ""
+				echo "DEPLOY SUCCESS"
+				echo ""
+
+				echo "Login, Build & Deploy has finished"
+				echo ""
+			else
+				echo ""
+				echo "DEPLOY FAILURE"
+				echo ""
+				exit
+			fi
+		else
+			echo ""
+			echo "BUILD FAILURE"
+			echo ""
+			exit
+		fi
+	else
+		echo ""
+		echo "LOGIN FAILURE"
+		echo ""
+		exit
+	fi
+}
+
+# Trap signals
+trap "signal_exit TERM" TERM HUP
+trap "signal_exit INT"  INT
+
+if [ -z "$APPLICATION_NAME" ]
+then
+	  no_params_exit
+fi
+
+# Parse command-line
+
+case $3 in
+    -c | --create)
+      OPERATION_TYPE=create ;;
+    -u | --update)
+      OPERATION_TYPE=update ;;
+	-* | --*)
+	  OPERATION_TYPE=update ;;
+    *)
+      OPERATION_TYPE=update ;;
+esac
+
+# Parse command-line
+case $1 in
+    -h | --help)
+      help_message; graceful_exit ;;
+    -l | --login)
+      login_logic; ;;
+    -b | --build)
+      build_logic; ;;
+	-d | --deploy)
+      deploy_logic; ;;
+    -a | --all)
+      all_logic; ;;
+    -al | --all-with-login)
+      all_with_login_logic; ;;
+    -* | --*)
+	  help_message
+      error_exit "Unknown option $1" ;;
+    *)
+      help_message; graceful_exit ;;
+esac
+
+SCRIPT_END_TIME=`date +%s`
+SCRIPT_RUNTIME=$((SCRIPT_END_TIME-SCRIPT_START_TIME))
+SCRIPT_RUNTIME_MINUTES=$(( (SCRIPT_RUNTIME % 3600) / 60 ));
+SCRIPT_RUNTIME_SECONDS=$(( (SCRIPT_RUNTIME % 3600) % 60 ));
+echo ""
+echo "Execution time: $SCRIPT_RUNTIME_MINUTES minutes $SCRIPT_RUNTIME_SECONDS seconds"
+echo ""
+
+graceful_exit
