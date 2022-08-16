@@ -1,4 +1,4 @@
-#!/bin/zsh
+#!/bin/bash
 # ---------------------------------------------------------------------------
 # deployment_helper - Minimal DevOps automation helper
 
