@@ -270,6 +270,8 @@ build_logic() {
 		if [ -n "$CODE_ENGINE_BUILD_DOCKERFILE" ]; then
 			DOCKERFILE_NAME=$CODE_ENGINE_BUILD_DOCKERFILE
 		fi
+		echo $DOCKERFILE_NAME
+		echo $CODE_ENGINE_BUILD_DOCKERFILE
 		docker build -t $IMAGE_NAME -f $DOCKERFILE_NAME --build-arg BUILD_SCRIPT=build-$DEPLOYMENT_LOCATION .
 		if [ $? -eq 0 ]; then
 			echo ""
