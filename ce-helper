@@ -268,7 +268,7 @@ build_logic() {
 		DOCKERFILE_NAME=Dockerfile
 		# Checking if Dockerfile has a different location or name
 		if [ -n "$CODE_ENGINE_BUILD_DOCKERFILE" ]; then
-			DOCKERFILE_NAME=$DOCKERFILE_NAME
+			DOCKERFILE_NAME=$CODE_ENGINE_BUILD_DOCKERFILE
 		fi
 		docker build -t $IMAGE_NAME -f $DOCKERFILE_NAME --build-arg BUILD_SCRIPT=build-$DEPLOYMENT_LOCATION .
 		if [ $? -eq 0 ]; then
