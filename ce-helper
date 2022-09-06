@@ -265,7 +265,12 @@ build_logic() {
 		echo ""
 		echo "- Step $CURRENT_STEP/$STEPS_COUNT - Building docker image"
 		echo ""
-		docker build -t $IMAGE_NAME --build-arg BUILD_SCRIPT=build-$DEPLOYMENT_LOCATION .
+		DOCKERFILE_NAME=Dockerfile
+		# Checking if Dockerfile has a different location or name
+		if [ -n "$CODE_ENGINE_BUILD_DOCKERFILE" ]; then
+			DOCKERFILE_NAME=$DOCKERFILE_NAME
+		fi
+		docker build -t $IMAGE_NAME -f $DOCKERFILE_NAME --build-arg BUILD_SCRIPT=build-$DEPLOYMENT_LOCATION .
 		if [ $? -eq 0 ]; then
 			echo ""
 			echo "- Step $CURRENT_STEP - OK"
