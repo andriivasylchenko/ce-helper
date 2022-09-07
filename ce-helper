@@ -349,6 +349,9 @@ deploy_logic() {
 		DEPLOYMENT_ARGUMENT="$DEPLOYMENT_ARGUMENT-$DEPLOYMENT_LOCATION"
 	fi
 
+	# Adding logic for extra arguments at the end
+	ADDITIONAL_ARGUMENT=
+
 	if [[ "$BUILD_TYPE" == "local" ]]
 	then
 		# local build deployment
@@ -360,7 +363,8 @@ deploy_logic() {
 		IMAGE_ARGUMENT="$IMAGE_ARGUMENT:$PACKAGE_VERSION"
 
 		echo "  Docker image: $IMAGE_ARGUMENT"
-		DEPLOYMENT_ARGUMENT="$DEPLOYMENT_ARGUMENT --image $IMAGE_ARGUMENT --build-clear"
+		DEPLOYMENT_ARGUMENT="$DEPLOYMENT_ARGUMENT --image $IMAGE_ARGUMENT"
+		ADDITIONAL_ARGUMENT="--build-clear"
 	else
 		# cloud build then deployment
 
@@ -452,10 +456,10 @@ deploy_logic() {
 	fi
 
 	echo ""
-	echo "ibmcloud ce application $DEPLOYMENT_ARGUMENT"
+	echo "ibmcloud ce application $DEPLOYMENT_ARGUMENT $ADDITIONAL_ARGUMENT"
 	echo ""
 
-	eval "ibmcloud ce application $DEPLOYMENT_ARGUMENT"
+	eval "ibmcloud ce application $DEPLOYMENT_ARGUMENT $ADDITIONAL_ARGUMENT"
 
 	if [ $? -eq 0 ]; then
 	    echo ""
