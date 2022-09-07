@@ -360,7 +360,7 @@ deploy_logic() {
 		IMAGE_ARGUMENT="$IMAGE_ARGUMENT:$PACKAGE_VERSION"
 
 		echo "  Docker image: $IMAGE_ARGUMENT"
-		DEPLOYMENT_ARGUMENT="$DEPLOYMENT_ARGUMENT --image $IMAGE_ARGUMENT"
+		DEPLOYMENT_ARGUMENT="$DEPLOYMENT_ARGUMENT --image $IMAGE_ARGUMENT --build-clear"
 	else
 		# cloud build then deployment
 
