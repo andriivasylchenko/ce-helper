@@ -10,32 +10,9 @@
 # ---------------------------------------------------------------------------
 
 PROGNAME=${0##*/}
-VERSION=0.1
+VERSION=0.2
 
 SCRIPT_START_TIME=`date +%s`
-
-# Parse command-line
-case $2 in
-    -p | --prod)
-      DEPLOYMENT_LOCATION=prod ;;
-    -s | --stage)
-      DEPLOYMENT_LOCATION=stage ;;
-    -t | --test)
-      DEPLOYMENT_LOCATION=test ;;
-    *)
-      DEPLOYMENT_LOCATION=prod ;;
-esac
-
-PACKAGE_VERSION=$(node --eval="process.stdout.write(require('./package.json').version)")
-	if [ $? -eq 0 ]; then
-	    echo "PACKAGE VERSION: $PACKAGE_VERSION"
-		echo ""
-	else
-	    no_package_version_exit
-	fi
-
-source ./.ce.$DEPLOYMENT_LOCATION.env
-
 
 clean_up() { # Perform pre-exit housekeeping
   return
@@ -83,7 +60,7 @@ signal_exit() { # Handle trapped signals
 }
 
 usage() {
-  echo -e "Usage: $PROGNAME [OPTION] [ENVIRONMENT] [ACTION]"
+  echo -e "Usage: $PROGNAME [ACTION] [ENVIRONMENT?] [OPERATION?]"
 }
 
 help_message() {
@@ -94,24 +71,31 @@ help_message() {
 
   $(usage)
 
-  Application accepts up to 3 arguments, one of each type
+  Application accepts up to 3 arguments (mainly one of each type)
 
-  OPTION:
+  ACTION - REQUIRED:
   -h, --help  Display this help message and exit.
   -l, --login  Login to IBM Cloud and IBM Container Registry
   -b, --build  Build docker image, tag it and push to IBM Container Registry
   -d, --deploy  Deploy to Kubernetes instance
   -a, --all  Build and Deploy procedures
   -al, --all-with-login  Login, Build and Deploy procedures
+  -ssh, --ssh  Connect to the pod via SSH
+  -r, --restart Restart application
+  -rl, --runtime-logs Show runtime logs
 
-  ENVIRONMENT:
+  ENVIRONMENT - OPTIONAL:
   -p, --prod Use production environment
   -s, --stage Use staging environment
   -t, --test Use test environment
 
-  ACTION:
+  Default ENVIRONMENT = prod
+
+  OPERATION - OPTIONAL (for deploy path):
   -c, --create Use to create new application on IBM Code Engine
   -u, --update Use to update existing application on IBM Code Engine
+
+  Default OPERATION = update
 
 _EOF_
   return
@@ -475,6 +459,110 @@ deploy_logic() {
 	fi
 }
 
+restart_logic() {
+	RESTART_ARGUMENT="--application $APPLICATION_NAME"
+	if [[ "$APPLICATION_INCLUDE_ENVIRONMENT_NAME" == "true" ]]; then
+		RESTART_ARGUMENT="$RESTART_ARGUMENT-$DEPLOYMENT_LOCATION"
+	fi
+
+	echo ""
+	echo "ibmcloud ce application $RESTART_ARGUMENT"
+	echo ""
+
+	eval "ibmcloud ce application restart $RESTART_ARGUMENT"
+
+	if [ $? -eq 0 ]; then
+	    echo ""
+		echo "- Application restart - OK"
+		echo ""
+		echo "  IMPORTANT! This doesn't mean a succesful start of $APPLICATION_NAME. Check logs or visit app for verification"
+		echo ""
+	else
+	    echo ""
+		echo "- Application restart - FAIL"
+		echo ""
+		exit 13
+	fi
+}
+
+ssh_logic() {
+	GET_ARGUMENT="--name $APPLICATION_NAME"
+	if [[ "$APPLICATION_INCLUDE_ENVIRONMENT_NAME" == "true" ]]; then
+		GET_ARGUMENT="$GET_ARGUMENT-$DEPLOYMENT_LOCATION"
+	fi
+
+	echo ""
+	echo "Getting instance name"
+	echo "ibmcloud ce app get $GET_ARGUMENT -o jsonpath='{.instances[0].metadata.name}'"
+	echo ""
+
+	INSTANCE_NAME=`eval "ibmcloud ce app get $GET_ARGUMENT -o jsonpath='{.instances[0].metadata.name}'"`
+
+	if [ $? -ne 0 ]; then
+	    echo ""
+		echo "- Failed to get application instance name - FAIL"
+		echo ""
+		graceful_exit;
+	fi
+
+
+	INSTANCE_NAME=${INSTANCE_NAME%%%*}
+	echo ""
+	echo "Application instance name is $INSTANCE_NAME"
+
+	echo ""
+	echo "Getting namespace name"
+	echo "ibmcloud ce app get $GET_ARGUMENT -o jsonpath='{.instances[0].metadata.namespace}'"
+	echo ""
+
+	NAMESPACE_NAME=`eval "ibmcloud ce app get $GET_ARGUMENT -o jsonpath='{.instances[0].metadata.namespace}'"`
+
+	if [ $? -ne 0 ]; then
+	    echo ""
+		echo "- Failed to get application instance name - FAIL"
+		echo ""
+		graceful_exit;
+	fi
+
+
+	NAMESPACE_NAME=${NAMESPACE_NAME%%%*}
+	echo ""
+	echo "Kubernetes namespace is $NAMESPACE_NAME"
+
+	echo ""
+	echo "Switching context to $NAMESPACE_NAME"
+	echo "kubectl config use-context $NAMESPACE_NAME"
+
+	eval "kubectl config use-context $NAMESPACE_NAME"
+
+	if [ $? -ne 0 ]; then
+	    echo ""
+		echo "- Failed to switch context - FAIL"
+		echo ""
+		graceful_exit;
+	fi
+
+	echo ""
+	echo "Launching SSH connection"
+	echo "kubectl exec -i -t -n $NAMESPACE_NAME $INSTANCE_NAME -c user-container -- sh -c /bin/bash"
+
+	eval "kubectl exec -i -t -n $NAMESPACE_NAME $INSTANCE_NAME -c user-container -- sh -c /bin/bash"
+
+}
+
+runtime_logs_logic() {
+	LOGS_ARGUMENT="-f --application $APPLICATION_NAME"
+	if [[ "$APPLICATION_INCLUDE_ENVIRONMENT_NAME" == "true" ]]; then
+		LOGS_ARGUMENT="$LOGS_ARGUMENT-$DEPLOYMENT_LOCATION"
+	fi
+
+	echo ""
+	echo "ibmcloud ce application logs $LOGS_ARGUMENT"
+	echo ""
+
+	eval "ibmcloud ce application logs $LOGS_ARGUMENT"
+}
+
 all_logic() {
 	echo ""
 	echo "Launching Build & Deploy"
@@ -551,6 +639,172 @@ all_with_login_logic() {
 	fi
 }
 
+# Parse command-line params
+DEPLOYMENT_LOCATION_SET=0
+CTA_SET=0
+OPERATION_TYPE_SET=0
+for item in "$@"; do
+	case $item in
+		-p | --prod)
+			if [ $DEPLOYMENT_LOCATION_SET -eq 1 ]; then
+				echo ERROR: ENVIRONMENT params conflict;
+				help_message;
+				graceful_exit;
+			else
+				DEPLOYMENT_LOCATION=prod
+				DEPLOYMENT_LOCATION_SET=1
+			fi
+			;;
+		-s | --stage)
+			if [ $DEPLOYMENT_LOCATION_SET -eq 1 ]; then
+				echo ERROR: ENVIRONMENT params conflict;
+				help_message;
+				graceful_exit;
+			else
+				DEPLOYMENT_LOCATION=stage
+				DEPLOYMENT_LOCATION_SET=1
+			fi
+			;;
+		-t | --test)
+			if [ $DEPLOYMENT_LOCATION_SET -eq 1 ]; then
+				echo ERROR: ENVIRONMENT params conflict;
+				help_message;
+				graceful_exit;
+			else
+				DEPLOYMENT_LOCATION=test
+				DEPLOYMENT_LOCATION_SET=1
+			fi
+			;;
+		-h | --help)
+			help_message; graceful_exit ;;
+		-l | --login)
+			if [ $CTA_SET -eq 1 ]; then
+				echo ERROR: ACTION params conflict;
+				help_message;
+				graceful_exit;
+			else
+				CTA=login_logic
+				CTA_SET=1
+			fi
+			;;
+		-b | --build)
+			if [ $CTA_SET -eq 1 ]; then
+				echo ERROR: ACTION params conflict;
+				help_message;
+				graceful_exit;
+			else
+				CTA=build_logic
+				CTA_SET=1
+			fi
+			;;
+		-d | --deploy)
+			if [ $CTA_SET -eq 1 ]; then
+				echo ERROR: ACTION params conflict;
+				help_message;
+				graceful_exit;
+			else
+				CTA=deploy_logic
+				CTA_SET=1
+			fi
+			;;
+		-a | --all)
+			if [ $CTA_SET -eq 1 ]; then
+				echo ERROR: ACTION params conflict;
+				help_message;
+				graceful_exit;
+			else
+				CTA=all_logic
+				CTA_SET=1
+			fi
+			;;
+		-al | --all-with-login)
+			if [ $CTA_SET -eq 1 ]; then
+				echo ERROR: ACTION params conflict;
+				help_message;
+				graceful_exit;
+			else
+				CTA=all_with_login_logic
+				CTA_SET=1
+			fi
+			;;
+		-ssh | --ssh)
+			if [ $CTA_SET -eq 1 ]; then
+				echo ERROR: ACTION params conflict
+				help_message;
+				graceful_exit;
+			else
+				CTA=ssh_logic
+				CTA_SET=1
+			fi
+			;;
+		-r | --restart)
+			if [ $CTA_SET -eq 1 ]; then
+				echo ERROR: ACTION params conflict
+				help_message;
+				graceful_exit;
+			else
+				CTA=restart_logic
+				CTA_SET=1
+			fi
+			;;
+		-rl | --runtime-logs)
+			if [ $CTA_SET -eq 1 ]; then
+				echo ERROR: ACTION params conflict
+				help_message;
+				graceful_exit;
+			else
+				CTA=runtime_logs_logic
+				CTA_SET=1
+			fi
+			;;
+		-c | --create)
+			if [ $OPERATION_TYPE_SET -eq 1 ]; then
+				echo ERROR: OPERATION params conflict;
+				help_message;
+				graceful_exit;
+			else
+				OPERATION_TYPE=create
+				OPERATION_TYPE_SET=1
+			fi
+			;;
+		-u | --update)
+			if [ $OPERATION_TYPE_SET -eq 1 ]; then
+				echo ERROR: OPERATION params conflict;
+				help_message;
+				graceful_exit;
+			else
+				OPERATION_TYPE=update
+				OPERATION_TYPE_SET=1
+			fi
+			;;
+		-* | --*)
+			help_message
+			error_exit "Unknown option $item" ;;
+		*)
+			help_message
+			graceful_exit
+			;;
+	esac
+done
+
+
+if [ $DEPLOYMENT_LOCATION_SET -eq 0 ]; then
+	DEPLOYMENT_LOCATION=prod
+	DEPLOYMENT_LOCATION_SET=1
+fi
+
+if [ $OPERATION_TYPE_SET -eq 0 ]; then
+	OPERATION_TYPE=update
+	OPERATION_TYPE_SET=1
+fi
+
+PACKAGE_VERSION=$(node --eval="process.stdout.write(require('./package.json').version)")
+	if [ -z "$PACKAGE_VERSION" ]; then
+	    no_package_version_exit
+	fi
+
+source ./.ce.$DEPLOYMENT_LOCATION.env
+
 # Trap signals
 trap "signal_exit TERM" TERM HUP
 trap "signal_exit INT"  INT
@@ -560,39 +814,12 @@ then
 	  no_params_exit
 fi
 
-# Parse command-line
-
-case $3 in
-    -c | --create)
-      OPERATION_TYPE=create ;;
-    -u | --update)
-      OPERATION_TYPE=update ;;
-	-* | --*)
-	  OPERATION_TYPE=update ;;
-    *)
-      OPERATION_TYPE=update ;;
-esac
-
-# Parse command-line
-case $1 in
-    -h | --help)
-      help_message; graceful_exit ;;
-    -l | --login)
-      login_logic; ;;
-    -b | --build)
-      build_logic; ;;
-	-d | --deploy)
-      deploy_logic; ;;
-    -a | --all)
-      all_logic; ;;
-    -al | --all-with-login)
-      all_with_login_logic; ;;
-    -* | --*)
-	  help_message
-      error_exit "Unknown option $1" ;;
-    *)
-      help_message; graceful_exit ;;
-esac
+if [ $CTA_SET -eq 0 ]; then
+	help_message
+	graceful_exit
+else
+	$CTA;
+fi
 
 SCRIPT_END_TIME=`date +%s`
 SCRIPT_RUNTIME=$((SCRIPT_END_TIME-SCRIPT_START_TIME))
