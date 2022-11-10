@@ -491,22 +491,78 @@ ssh_logic() {
 		GET_ARGUMENT="$GET_ARGUMENT-$DEPLOYMENT_LOCATION"
 	fi
 
+	INSTANCE_NAME=
 	echo ""
 	echo "Getting instance name"
 	echo "ibmcloud ce app get $GET_ARGUMENT -o jsonpath='{.instances[0].metadata.name}'"
 	echo ""
-
-	INSTANCE_NAME=`eval "ibmcloud ce app get $GET_ARGUMENT -o jsonpath='{.instances[0].metadata.name}'"`
-
+	INSTANCE_COUNT=1
+	INSTANCE_NAME_1=`eval "ibmcloud ce app get $GET_ARGUMENT -o jsonpath='{.instances[0].metadata.name}'"`
 	if [ $? -ne 0 ]; then
 	    echo ""
 		echo "- Failed to get application instance name - FAIL"
 		echo ""
 		graceful_exit;
+	else
+		INSTANCE_NAME_1=${INSTANCE_NAME_1%%%*}
+		INSTANCE_NAME_2=`eval "ibmcloud ce app get $GET_ARGUMENT -o jsonpath='{.instances[1].metadata.name}'"`
+		if [ $? -ne 0 ]; then
+			echo ""
+		else
+			INSTANCE_COUNT=2
+			INSTANCE_NAME_2=${INSTANCE_NAME_2%%%*}
+			INSTANCE_NAME_3=`eval "ibmcloud ce app get $GET_ARGUMENT -o jsonpath='{.instances[2].metadata.name}'"`
+			if [ $? -ne 0 ]; then
+				echo ""
+			else
+				INSTANCE_COUNT=3
+				INSTANCE_NAME_3=${INSTANCE_NAME_3%%%*}
+				INSTANCE_NAME_4=`eval "ibmcloud ce app get $GET_ARGUMENT -o jsonpath='{.instances[3].metadata.name}'"`
+				if [ $? -ne 0 ]; then
+				echo ""
+				else
+					INSTANCE_COUNT=4
+					INSTANCE_NAME_4=${INSTANCE_NAME_4%%%*}
+				fi
+			fi
+		fi
 	fi
 
+	if [ $INSTANCE_COUNT -ne 1 ]; then
+		echo
+		echo Provide number of instance to ssh to
+		if [ -n "$INSTANCE_NAME_1" ]; then
+			echo "1) $INSTANCE_NAME_1"
+		fi
+		if [ -n "$INSTANCE_NAME_2" ]; then
+			echo "2) $INSTANCE_NAME_2"
+		fi
+		if [ -n "$INSTANCE_NAME_3" ]; then
+			echo "3) $INSTANCE_NAME_3"
+		fi
+		if [ -n "$INSTANCE_NAME_4" ]; then
+			echo "4) $INSTANCE_NAME_4"
+		fi
+		read -p "Provide number [1-$INSTANCE_COUNT]: " INSTANCE_INPUT_NUMBER
+		case $INSTANCE_INPUT_NUMBER in
+			1)
+				INSTANCE_NAME=$INSTANCE_NAME_1;;
+			2)
+				INSTANCE_NAME=$INSTANCE_NAME_2;;
+			3)
+				INSTANCE_NAME=$INSTANCE_NAME_3;;
+			4)
+				INSTANCE_NAME=$INSTANCE_NAME_4;;
+			*)
+				echo ""
+				echo "Wrong input provided"
+				echo ""
+				exit 13 ;;
+		esac
+	else
+		INSTANCE_NAME=$INSTANCE_NAME_1
+	fi
 
-	INSTANCE_NAME=${INSTANCE_NAME%%%*}
 	echo ""
 	echo "Application instance name is $INSTANCE_NAME"
 
